@@ -1,5 +1,5 @@
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/card"
 import { CheckCircle2, Trash2 } from "lucide-react"
 
 interface OfferOwnerActionsProps {
