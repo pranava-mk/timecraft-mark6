@@ -107,8 +107,13 @@ const OfferCard = ({ offer, showApplications = false }: OfferCardProps) => {
   // Check if this offer has any accepted applications
   const hasAcceptedApplication = applications?.some(app => app.status === 'accepted')
 
-  // If the offer is completed and not owned by current user, don't show the card
+  // If the offer is completed and not owned by current user, don't show the card in My Requests
   if (offer.status === 'completed' && !isOwner && !showApplications) {
+    return null
+  }
+  
+  // If we're showing applications (My Requests tab) and the offer is completed, don't show it
+  if (showApplications && offer.status === 'completed') {
     return null
   }
 
