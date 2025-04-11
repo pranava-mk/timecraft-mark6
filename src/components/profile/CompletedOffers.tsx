@@ -1,11 +1,13 @@
 
 import { useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "@/integrations/supabase/client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { CheckCircle2, User, Users } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { CheckCircle2, BadgeCheck, User, Users } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
 
 interface CompletedOffersProps {
   userId: string | null
@@ -23,10 +25,45 @@ interface CompletedOffer {
   completed_at: string
   provider_username?: string
   requester_username?: string
+  claimed?: boolean
+  hours?: number
 }
 
 const CompletedOffers = ({ userId, username, avatar }: CompletedOffersProps) => {
   const [activeTab, setActiveTab] = useState<'by-you' | 'for-you'>('for-you')
+  const { toast } = useToast()
+  const queryClient = useQueryClient()
+  
+  // Add mutation for claiming credits
+  const claimCreditsMutation = useMutation({
+    mutationFn: async (transactionId: string) => {
+      const { data, error } = await supabase
+        .from('transactions')
+        .update({ claimed: true })
+        .eq('id', transactionId)
+        .select()
+      
+      if (error) throw error
+      return data
+    },
+    onSuccess: () => {
+      toast({
+        title: "Credits claimed successfully",
+        description: "The time credits have been added to your balance",
+        variant: "default",
+      })
+      // Invalidate relevant queries to refresh the UI
+      queryClient.invalidateQueries({ queryKey: ['completed-offers', userId] })
+      queryClient.invalidateQueries({ queryKey: ['time-balance', userId] })
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to claim credits",
+        description: error.message,
+        variant: "destructive",
+      })
+    }
+  })
   
   // Fetch offers completed BY the user (user was the service provider)
   const { data: completedByYou, isLoading: byYouLoading } = useQuery({
@@ -43,7 +80,8 @@ const CompletedOffers = ({ userId, username, avatar }: CompletedOffersProps) => 
           hours,
           created_at,
           offer_id,
-          user_id
+          user_id,
+          claimed
         `)
         .eq('provider_id', userId)
         .order('created_at', { ascending: false })
@@ -89,7 +127,8 @@ const CompletedOffers = ({ userId, username, avatar }: CompletedOffersProps) => 
           hours: transaction.hours,
           created_at: transaction.created_at,
           completed_at: transaction.created_at, // Using created_at as completed_at
-          requester_username: userData?.username || 'Unknown User'
+          requester_username: userData?.username || 'Unknown User',
+          claimed: transaction.claimed
         })
       }
 
@@ -168,6 +207,14 @@ const CompletedOffers = ({ userId, username, avatar }: CompletedOffersProps) => 
     enabled: !!userId
   })
 
+  const handleClaimCredits = async (transactionId: string) => {
+    try {
+      await claimCreditsMutation.mutate(transactionId)
+    } catch (error) {
+      console.error('Error claiming credits:', error)
+    }
+  }
+
   return (
     <div>
       <Tabs defaultValue="for-you" onValueChange={(val) => setActiveTab(val as 'by-you' | 'for-you')}>
@@ -222,6 +269,8 @@ const CompletedOffers = ({ userId, username, avatar }: CompletedOffersProps) => 
                   key={offer.id}
                   offer={offer}
                   isForYou={false}
+                  onClaimCredits={handleClaimCredits}
+                  isClaimingCredits={claimCreditsMutation.isPending}
                 />
               ))
             )}
@@ -235,11 +284,17 @@ const CompletedOffers = ({ userId, username, avatar }: CompletedOffersProps) => 
 // Component for displaying a completed offer card
 const CompletedOfferCard = ({ 
   offer, 
-  isForYou 
+  isForYou,
+  onClaimCredits,
+  isClaimingCredits
 }: { 
   offer: CompletedOffer, 
-  isForYou: boolean 
+  isForYou: boolean,
+  onClaimCredits?: (transactionId: string) => void,
+  isClaimingCredits?: boolean
 }) => {
+  const showClaimButton = !isForYou && !offer.claimed && onClaimCredits;
+
   return (
     <Card className="gradient-border">
       <CardContent className="p-6">
@@ -250,7 +305,7 @@ const CompletedOfferCard = ({
           </div>
           <div className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs font-medium">
             <CheckCircle2 className="h-3 w-3 mr-1" />
-            Completed
+            {offer.claimed ? "Claimed" : "Completed"}
           </div>
         </div>
         
@@ -266,11 +321,25 @@ const CompletedOfferCard = ({
           </div>
         </div>
         
-        <div className="mt-4 pt-3 border-t border-navy/10 text-sm">
-          {isForYou ? (
-            <p>Completed by: <span className="font-medium">{offer.provider_username}</span></p>
-          ) : (
-            <p>Requested by: <span className="font-medium">{offer.requester_username}</span></p>
+        <div className="mt-4 pt-3 border-t border-navy/10 text-sm flex justify-between items-center">
+          <div>
+            {isForYou ? (
+              <p>Completed by: <span className="font-medium">{offer.provider_username}</span></p>
+            ) : (
+              <p>Requested by: <span className="font-medium">{offer.requester_username}</span></p>
+            )}
+          </div>
+          
+          {showClaimButton && (
+            <Button 
+              onClick={() => onClaimCredits?.(offer.id)} 
+              disabled={isClaimingCredits}
+              size="sm"
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              <BadgeCheck className="h-4 w-4 mr-1" />
+              Claim {offer.hours} Credits
+            </Button>
           )}
         </div>
       </CardContent>
