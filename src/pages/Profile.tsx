@@ -98,8 +98,6 @@ const Profile = () => {
         () => {
           console.log('Transactions update received on profile page')
           queryClient.invalidateQueries({ queryKey: ['completed-offers', userId] })
-          queryClient.invalidateQueries({ queryKey: ['user-offers', userId] })
-          queryClient.invalidateQueries({ queryKey: ['time-balance', userId] })
         }
       )
       .subscribe()
@@ -129,27 +127,6 @@ const Profile = () => {
     enabled: !!userId
   })
 
-  const { data: timeBalance, isLoading: timeBalanceLoading } = useQuery({
-    queryKey: ['time-balance', userId],
-    queryFn: async () => {
-      if (!userId) return null
-
-      const { data, error } = await supabase
-        .from('time_balances')
-        .select('balance')
-        .eq('user_id', userId)
-        .single()
-
-      if (error) {
-        console.error('Error fetching time balance:', error)
-        return { balance: 30 }  // Default value
-      }
-      
-      return data
-    },
-    enabled: !!userId
-  })
-
   const { data: userOffers, isLoading: userOffersLoading } = useQuery({
     queryKey: ['user-offers', userId],
     queryFn: async () => {
@@ -167,6 +144,19 @@ const Profile = () => {
     },
     enabled: !!userId
   })
+
+  const calculateTimeBalance = () => {
+    const INITIAL_CREDITS = 30;
+    
+    if (userOffersLoading || !userOffers) {
+      return INITIAL_CREDITS;
+    }
+    
+    const usedCredits = userOffers.reduce((sum, offer) => 
+      sum + (offer.time_credits || 0), 0);
+    
+    return INITIAL_CREDITS - usedCredits;
+  }
 
   const handleLogout = async () => {
     try {
@@ -214,11 +204,11 @@ const Profile = () => {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl md:text-4xl font-bold">Profile</h1>
         <div className="flex items-center gap-4">
-          {timeBalanceLoading ? (
+          {userOffersLoading ? (
             <Skeleton className="h-6 w-24" />
           ) : (
             <div className="text-sm font-medium">
-              <span className="text-teal">{timeBalance?.balance || 0}</span> credits available
+              <span className="text-teal">{calculateTimeBalance()}</span> credits available
             </div>
           )}
           <Button variant="outline" onClick={handleLogout}>
@@ -290,7 +280,7 @@ const Profile = () => {
               <Button 
                 size="sm" 
                 onClick={() => navigate('/offer')}
-                disabled={userOffersLoading || (timeBalance?.balance || 0) <= 0}
+                disabled={userOffersLoading || calculateTimeBalance() <= 0}
               >
                 <Plus className="h-4 w-4 mr-1" />
                 New Request
