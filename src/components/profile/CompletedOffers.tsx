@@ -55,6 +55,7 @@ const CompletedOffers = ({ userId, username, avatar }: CompletedOffersProps) => 
       // Invalidate relevant queries to refresh the UI
       queryClient.invalidateQueries({ queryKey: ['completed-offers', userId] })
       queryClient.invalidateQueries({ queryKey: ['time-balance', userId] })
+      queryClient.invalidateQueries({ queryKey: ['user-stats'] })
     },
     onError: (error) => {
       toast({
@@ -337,9 +338,16 @@ const CompletedOfferCard = ({
               size="sm"
               className="bg-green-600 hover:bg-green-700 text-white"
             >
-              <BadgeCheck className="h-4 w-4 mr-1" />
+              <BadgeCheck className="h-4 w-4 mr-2" />
               Claim {offer.hours} Credits
             </Button>
+          )}
+          
+          {!isForYou && offer.claimed && (
+            <div className="flex items-center text-green-700 font-medium text-sm">
+              <BadgeCheck className="h-4 w-4 mr-1" />
+              Credits Claimed
+            </div>
           )}
         </div>
       </CardContent>
