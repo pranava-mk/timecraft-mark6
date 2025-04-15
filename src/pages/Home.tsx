@@ -1,5 +1,4 @@
 
-import React from "react"
 import HomeHeader from "@/components/home/HomeHeader"
 import QuickStats from "@/components/home/QuickStats"
 import PendingOffers from "@/components/home/PendingOffers"

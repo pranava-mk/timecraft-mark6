@@ -15,7 +15,7 @@ export const useCompleteOffer = () => {
       // First get the offer to verify ownership and get details
       const { data: offer, error: offerError } = await supabase
         .from('offers')
-        .select('profile_id, time_credits, service_type')
+        .select('profile_id, time_credits, service_type, status')
         .eq('id', offerId)
         .single()
       
@@ -26,16 +26,20 @@ export const useCompleteOffer = () => {
         throw new Error('Only the offer owner can mark it as completed')
       }
       
-      // Get the accepted applicant - using maybeSingle() to handle cases when there's no accepted application
+      // Check if the offer is already completed
+      if (offer.status === 'completed') {
+        throw new Error('This offer is already marked as completed')
+      }
+      
+      // Get the accepted applicant
       const { data: acceptedApplication, error: applicationError } = await supabase
         .from('offer_applications')
         .select('applicant_id')
         .eq('offer_id', offerId)
         .eq('status', 'accepted')
-        .maybeSingle()
+        .single()
       
-      if (applicationError) throw applicationError
-      if (!acceptedApplication) throw new Error('No accepted application found for this offer')
+      if (applicationError) throw new Error('No accepted application found for this offer')
       
       // Update the offer status to completed
       const { error: updateError } = await supabase
@@ -48,7 +52,30 @@ export const useCompleteOffer = () => {
       
       if (updateError) throw updateError
       
-      // Create a transaction record (but don't transfer credits yet - provider needs to claim them)
+      // First get the current balance of the service provider
+      const { data: currentBalance, error: balanceReadError } = await supabase
+        .from('time_balances')
+        .select('balance')
+        .eq('user_id', acceptedApplication.applicant_id)
+        .single()
+      
+      if (balanceReadError) throw balanceReadError
+      
+      // Calculate new balance
+      const newBalance = currentBalance.balance + (offer.time_credits || 1)
+      
+      // Transfer the credits to the service provider (applicant who completed the service)
+      const { error: balanceError } = await supabase
+        .from('time_balances')
+        .update({ 
+          balance: newBalance,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', acceptedApplication.applicant_id)
+      
+      if (balanceError) throw balanceError
+      
+      // Create a transaction record
       const { error: transactionError } = await supabase
         .from('transactions')
         .insert({
@@ -56,25 +83,16 @@ export const useCompleteOffer = () => {
           hours: offer.time_credits || 1,
           user_id: user.id,  // Requester
           provider_id: acceptedApplication.applicant_id,  // Service provider
-          offer_id: offerId,
-          claimed: false  // Start as unclaimed
+          offer_id: offerId
         })
       
       if (transactionError) throw transactionError
-
-      return {
-        success: true,
-        providerId: acceptedApplication.applicant_id,
-        credits: offer.time_credits || 1
-      }
     },
-    onSuccess: (result) => {
+    onSuccess: () => {
       toast({
         title: "Success",
-        description: `Offer marked as completed. The service provider can now claim ${result.credits} credits.`,
+        description: "Offer marked as completed and credits transferred",
       })
-      
-      // Invalidate all relevant queries to update the UI
       queryClient.invalidateQueries({ queryKey: ['user-offers'] })
       queryClient.invalidateQueries({ queryKey: ['offers'] })
       queryClient.invalidateQueries({ queryKey: ['time-balance'] })
@@ -83,10 +101,9 @@ export const useCompleteOffer = () => {
       queryClient.invalidateQueries({ queryKey: ['pending-offers-and-applications'] })
     },
     onError: (error) => {
-      console.error("Error completing offer:", error)
       toast({
         title: "Error",
-        description: `Failed to complete offer: ${error.message}`,
+        description: "Failed to complete offer: " + error.message,
         variant: "destructive",
       })
     }
