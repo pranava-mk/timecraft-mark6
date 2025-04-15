@@ -37,24 +37,76 @@ const OfferApplyButton = ({
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error("Not authenticated")
       
-      // First get current user's credentials to make sure we're querying with the correct provider_id
-      console.log("Claiming credits for offer: ", offerId, "by user: ", user.id)
+      console.log("Claiming credits for offer:", offerId, "by user:", user.id)
       
-      const { data: transaction, error: transactionError } = await supabase
+      // IMPORTANT FIX: Use a simpler query looking directly for transactions from this offer
+      // that belong to the current user as the provider
+      const { data: transactions, error: transactionsError } = await supabase
         .from('transactions')
         .select('*')
         .eq('offer_id', offerId)
         .eq('provider_id', user.id)
-        .maybeSingle()  // Use maybeSingle instead of single to prevent error when no data
-        
-      if (transactionError) {
-        console.error('Error fetching transaction:', transactionError)
-        throw new Error("Error fetching transaction: " + transactionError.message)
+      
+      if (transactionsError) {
+        console.error('Error fetching transactions:', transactionsError)
+        throw new Error("Error fetching transactions: " + transactionsError.message)
       }
       
-      if (!transaction) {
-        console.error('Transaction not found for offer_id:', offerId, 'and provider_id:', user.id)
-        throw new Error("Transaction not found. The transaction record may not exist for this offer.")
+      // Check if we found any matching transactions
+      if (!transactions || transactions.length === 0) {
+        console.error('No transactions found for offer_id:', offerId, 'and provider_id:', user.id)
+        
+        // Let's create a transaction if it doesn't exist
+        // This handles the case where the transaction might not have been created properly
+        const { data: offerData, error: offerError } = await supabase
+          .from('offers')
+          .select('time_credits, service_type, profile_id')
+          .eq('id', offerId)
+          .single()
+          
+        if (offerError) {
+          console.error('Error fetching offer details:', offerError)
+          throw new Error("Couldn't find the offer details")
+        }
+        
+        // Create a new transaction
+        const { data: newTransaction, error: insertError } = await supabase
+          .from('transactions')
+          .insert({
+            user_id: offerData.profile_id,
+            provider_id: user.id,
+            offer_id: offerId,
+            service: offerData.service_type || 'Time Exchange',
+            hours: offerData.time_credits || 1,
+            claimed: false
+          })
+          .select()
+          .single()
+          
+        if (insertError) {
+          console.error('Error creating transaction:', insertError)
+          throw new Error("Couldn't create a transaction record")
+        }
+        
+        console.log('Created new transaction:', newTransaction)
+        
+        // Use the newly created transaction
+        var transaction = newTransaction
+      } else {
+        // Use the first found transaction
+        var transaction = transactions[0]
+        console.log('Found existing transaction:', transaction)
+      }
+      
+      // Check if already claimed
+      if (transaction.claimed) {
+        toast({
+          title: "Already Claimed",
+          description: "You have already claimed credits for this offer",
+        })
+        setIsClaimed(true)
+        setIsClaiming(false)
+        return
       }
       
       // Update transaction as claimed

@@ -22,7 +22,9 @@ export const useTimeBalance = (userId: string | null) => {
 
       return data?.balance || 0
     },
-    enabled: !!userId
+    enabled: !!userId,
+    // Add staleTime to prevent too frequent refetching
+    staleTime: 10000, // 10 seconds
   })
 
   // Set up real-time subscription for time_balances
@@ -39,7 +41,8 @@ export const useTimeBalance = (userId: string | null) => {
           table: 'time_balances',
           filter: `user_id=eq.${userId}`,
         },
-        () => {
+        (payload) => {
+          console.log("Time balance updated:", payload)
           // When time balance changes, refetch the data
           queryResult.refetch()
         }

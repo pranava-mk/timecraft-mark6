@@ -59,29 +59,84 @@ export const CompletedOfferCard = ({
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error("Not authenticated")
       
-      // Verify the transaction exists and belongs to the user
-      const { data: transaction, error: transactionCheckError } = await supabase
+      // First, check if this transaction exists
+      const { data: transaction, error: transactionError } = await supabase
         .from('transactions')
         .select('*')
         .eq('id', transactionId)
-        .eq('provider_id', user.id)
         .maybeSingle()
         
-      if (transactionCheckError) {
-        console.error('Error checking transaction:', transactionCheckError)
-        throw new Error("Error checking transaction: " + transactionCheckError.message)
+      if (transactionError) {
+        console.error('Error checking transaction:', transactionError)
+        throw new Error("Error checking transaction: " + transactionError.message)
       }
       
       if (!transaction) {
-        console.error('Transaction not found or does not belong to user:', transactionId)
-        throw new Error("Transaction not found or does not belong to you")
+        console.error('Transaction not found:', transactionId)
+        
+        // If we have offer ID, try to create a transaction
+        if (offer.id) {
+          // Get offer details first
+          const { data: offerData, error: offerError } = await supabase
+            .from('offers')
+            .select('profile_id')
+            .eq('id', offer.id)
+            .single()
+            
+          if (offerError) {
+            console.error('Error fetching offer details:', offerError)
+            throw new Error("Couldn't find the offer details")
+          }
+          
+          // Create a new transaction
+          const { data: newTransaction, error: insertError } = await supabase
+            .from('transactions')
+            .insert({
+              id: transactionId, // Use the provided transaction ID
+              user_id: offerData.profile_id,
+              provider_id: user.id,
+              offer_id: offer.id,
+              service: offer.service_type || 'Time Exchange',
+              hours: offer.hours || offer.time_credits || 1,
+              claimed: false
+            })
+            .select()
+            .single()
+            
+          if (insertError) {
+            console.error('Error creating transaction:', insertError)
+            throw new Error("Couldn't create a transaction record")
+          }
+          
+          console.log('Created new transaction:', newTransaction)
+          var transaction = newTransaction
+        } else {
+          throw new Error("Transaction not found and cannot create a new one without offer details")
+        }
+      }
+      
+      // Check if this transaction belongs to the current user
+      if (transaction.provider_id !== user.id) {
+        console.error('Transaction does not belong to current user')
+        throw new Error("This transaction does not belong to you")
+      }
+      
+      // Check if already claimed
+      if (transaction.claimed) {
+        toast({
+          title: "Already Claimed",
+          description: "You have already claimed credits for this offer",
+        })
+        setIsClaimed(true)
+        setIsClaiming(false)
+        return
       }
       
       // Update transaction as claimed
       const { error: updateError } = await supabase
         .from('transactions')
         .update({ claimed: true })
-        .eq('id', transactionId)
+        .eq('id', transaction.id)
 
       if (updateError) {
         console.error('Error updating transaction:', updateError)
@@ -100,8 +155,8 @@ export const CompletedOfferCard = ({
         throw balanceError
       }
       
-      // Update user's time balance by adding the hours from the transaction
-      const newBalance = timeBalance.balance + offer.hours
+      // Update user's time balance
+      const newBalance = timeBalance.balance + transaction.hours
       
       const { error: updateBalanceError } = await supabase
         .from('time_balances')
@@ -119,7 +174,7 @@ export const CompletedOfferCard = ({
       // Show success message
       toast({
         title: "Success",
-        description: `${offer.hours} credits have been added to your balance!`,
+        description: `${transaction.hours} credits have been added to your balance!`,
       })
 
       // Set local state to show claimed status
