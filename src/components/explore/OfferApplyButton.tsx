@@ -1,9 +1,8 @@
-
 import { Button } from "@/components/ui/button"
 import { Check, Gift, Hourglass } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { supabase } from "@/integrations/supabase/client"
-import { useToast } from "@/hooks/use-toast"
+import { useToast } from "@/components/ui/use-toast"
 import { useState } from "react"
 
 interface OfferApplyButtonProps {
@@ -34,25 +33,73 @@ const OfferApplyButton = ({
     try {
       setIsClaiming(true)
       
-      const { error } = await supabase
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error("Not authenticated")
+      
+      const { data: transaction, error: transactionError } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('offer_id', offerId)
+        .eq('provider_id', user.id)
+        .single()
+        
+      if (transactionError) {
+        console.error('Error fetching transaction:', transactionError)
+        throw new Error("Couldn't find the transaction")
+      }
+      
+      if (!transaction) {
+        throw new Error("Transaction not found")
+      }
+      
+      const { error: updateError } = await supabase
         .from('transactions')
         .update({ claimed: true })
-        .eq('offer_id', offerId)
+        .eq('id', transaction.id)
 
-      if (error) throw error
+      if (updateError) {
+        console.error('Error updating transaction:', updateError)
+        throw updateError
+      }
+      
+      const { data: timeBalance, error: balanceError } = await supabase
+        .from('time_balances')
+        .select('balance')
+        .eq('user_id', user.id)
+        .single()
+        
+      if (balanceError) {
+        console.error('Error fetching time balance:', balanceError)
+        throw balanceError
+      }
+      
+      const newBalance = timeBalance.balance + transaction.hours
+      
+      const { error: updateBalanceError } = await supabase
+        .from('time_balances')
+        .update({ 
+          balance: newBalance,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', user.id)
+        
+      if (updateBalanceError) {
+        console.error('Error updating time balance:', updateBalanceError)
+        throw updateBalanceError
+      }
 
       toast({
         title: "Success",
-        description: "Credits have been claimed successfully!",
+        description: `${transaction.hours} credits have been added to your balance!`,
       })
 
-      // Set local state to show claimed status
       setIsClaimed(true)
 
-      // Invalidate relevant queries
-      queryClient.invalidateQueries({ queryKey: ['pending-offers-and-applications'] })
+      queryClient.invalidateQueries({ queryKey: ['completed-offers'] })
       queryClient.invalidateQueries({ queryKey: ['time-balance'] })
+      queryClient.invalidateQueries({ queryKey: ['user-stats'] })
     } catch (error: any) {
+      console.error('Error in handleClaim:', error)
       toast({
         variant: "destructive",
         title: "Error",
@@ -63,7 +110,6 @@ const OfferApplyButton = ({
     }
   }
   
-  // Only show claim button for service providers (applicants) when the offer is completed
   if (isApplied && status === 'completed' && (applicationStatus === 'accepted' || userApplication?.status === 'accepted')) {
     return (
       <Button 
