@@ -37,22 +37,27 @@ const OfferApplyButton = ({
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error("Not authenticated")
       
+      // First get current user's credentials to make sure we're querying with the correct provider_id
+      console.log("Claiming credits for offer: ", offerId, "by user: ", user.id)
+      
       const { data: transaction, error: transactionError } = await supabase
         .from('transactions')
         .select('*')
         .eq('offer_id', offerId)
         .eq('provider_id', user.id)
-        .single()
+        .maybeSingle()  // Use maybeSingle instead of single to prevent error when no data
         
       if (transactionError) {
         console.error('Error fetching transaction:', transactionError)
-        throw new Error("Couldn't find the transaction")
+        throw new Error("Error fetching transaction: " + transactionError.message)
       }
       
       if (!transaction) {
-        throw new Error("Transaction not found")
+        console.error('Transaction not found for offer_id:', offerId, 'and provider_id:', user.id)
+        throw new Error("Transaction not found. The transaction record may not exist for this offer.")
       }
       
+      // Update transaction as claimed
       const { error: updateError } = await supabase
         .from('transactions')
         .update({ claimed: true })
@@ -63,6 +68,7 @@ const OfferApplyButton = ({
         throw updateError
       }
       
+      // Get the user's current time balance
       const { data: timeBalance, error: balanceError } = await supabase
         .from('time_balances')
         .select('balance')
@@ -74,6 +80,7 @@ const OfferApplyButton = ({
         throw balanceError
       }
       
+      // Update user's time balance
       const newBalance = timeBalance.balance + transaction.hours
       
       const { error: updateBalanceError } = await supabase
@@ -96,6 +103,7 @@ const OfferApplyButton = ({
 
       setIsClaimed(true)
 
+      // Invalidate relevant queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['completed-offers'] })
       queryClient.invalidateQueries({ queryKey: ['time-balance'] })
       queryClient.invalidateQueries({ queryKey: ['user-stats'] })

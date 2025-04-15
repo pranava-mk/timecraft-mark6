@@ -41,14 +41,41 @@ export const CompletedOfferCard = ({
     : 'Unknown date'
   
   const handleClaim = async () => {
-    if (!transactionId) return
+    if (!transactionId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Transaction ID is missing. Cannot claim credits.",
+      })
+      return
+    }
     
     try {
       setIsClaiming(true)
       
+      console.log("Claiming credits for transaction ID:", transactionId)
+      
       // Get the current user
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error("Not authenticated")
+      
+      // Verify the transaction exists and belongs to the user
+      const { data: transaction, error: transactionCheckError } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('id', transactionId)
+        .eq('provider_id', user.id)
+        .maybeSingle()
+        
+      if (transactionCheckError) {
+        console.error('Error checking transaction:', transactionCheckError)
+        throw new Error("Error checking transaction: " + transactionCheckError.message)
+      }
+      
+      if (!transaction) {
+        console.error('Transaction not found or does not belong to user:', transactionId)
+        throw new Error("Transaction not found or does not belong to you")
+      }
       
       // Update transaction as claimed
       const { error: updateError } = await supabase
