@@ -60,7 +60,7 @@ export const useCreateOffer = () => {
         duration: offer.duration
       })
 
-      // The credit deduction is now ONLY handled by the database trigger
+      // The credit deduction is ONLY handled by the database trigger
       // Do not manually update the time balance here
       const { error, data } = await supabase
         .from('offers')
