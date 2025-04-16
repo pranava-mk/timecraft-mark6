@@ -15,6 +15,33 @@ const Offer = () => {
       const { data } = await supabase.auth.getUser()
       if (data?.user?.id) {
         setUserId(data.user.id)
+        
+        // Check if user has a time balance, if not create one with 30 credits
+        const { data: timeBalanceData, error } = await supabase
+          .from('time_balances')
+          .select('balance')
+          .eq('user_id', data.user.id)
+          .maybeSingle()
+          
+        if (error) {
+          console.error('Error checking time balance:', error)
+        } else if (!timeBalanceData) {
+          // Create initial time balance with 30 credits
+          const { error: insertError } = await supabase
+            .from('time_balances')
+            .insert([{
+              user_id: data.user.id,
+              balance: 30,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }])
+            
+          if (insertError) {
+            console.error('Error creating initial time balance:', insertError)
+          } else {
+            console.log('Created initial time balance of 30 credits')
+          }
+        }
       }
     }
     
