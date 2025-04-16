@@ -39,31 +39,9 @@ const QuickStats = () => {
           table: 'time_balances',
           filter: `user_id=eq.${userId}`
         },
-        (payload) => {
-          console.log('Time balance update received in QuickStats', payload)
-          queryClient.invalidateQueries({ queryKey: ['time-balance'] })
-          // Force immediate refetch
-          queryClient.refetchQueries({ queryKey: ['time-balance'] })
-        }
-      )
-      .subscribe()
-
-    // Set up real-time listener for transactions changes
-    const transactionsChannel = supabase
-      .channel('transactions-quickstats-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'transactions'
-        },
-        (payload) => {
-          console.log('Transaction update received in QuickStats', payload)
-          queryClient.invalidateQueries({ queryKey: ['time-balance'] })
-          queryClient.invalidateQueries({ queryKey: ['user-stats'] })
-          // Force immediate refetch
-          queryClient.refetchQueries({ queryKey: ['time-balance'] })
+        () => {
+          console.log('Time balance update received')
+          queryClient.invalidateQueries({ queryKey: ['time-balance', userId] })
         }
       )
       .subscribe()
@@ -76,20 +54,20 @@ const QuickStats = () => {
         {
           event: '*',
           schema: 'public',
-          table: 'offers'
+          table: 'offers',
+          filter: `profile_id=eq.${userId}`
         },
         () => {
-          console.log('Offers update received in QuickStats')
-          queryClient.invalidateQueries({ queryKey: ['user-stats'] })
-          queryClient.invalidateQueries({ queryKey: ['time-balance'] })
-          queryClient.invalidateQueries({ queryKey: ['user-offers'] })
+          console.log('Offers update received')
+          queryClient.invalidateQueries({ queryKey: ['user-stats', userId] })
+          queryClient.invalidateQueries({ queryKey: ['time-balance', userId] })
+          queryClient.invalidateQueries({ queryKey: ['user-offers', userId] })
         }
       )
       .subscribe()
 
     return () => {
       supabase.removeChannel(timeBalanceChannel)
-      supabase.removeChannel(transactionsChannel)
       supabase.removeChannel(offersChannel)
     }
   }, [queryClient, userId])
@@ -112,29 +90,37 @@ const QuickStats = () => {
     enabled: !!userId // Only run query when userId is available
   })
 
-  // Directly fetch time balance from the database
-  const { data: timeBalanceData, isLoading: timeBalanceLoading } = useQuery({
-    queryKey: ['time-balance'],
+  // Get user's offers to calculate credits used
+  const { data: userOffers, isLoading: userOffersLoading } = useQuery({
+    queryKey: ['user-offers', userId],
     queryFn: async () => {
       if (!userId) return null
       
       const { data, error } = await supabase
-        .from('time_balances')
-        .select('balance')
-        .eq('user_id', userId)
-        .single()
-
-      if (error) {
-        console.error('Error fetching time balance:', error)
-        throw error
-      }
+        .from('offers')
+        .select('time_credits')
+        .eq('profile_id', userId)
       
-      console.log('Time balance data fetched:', data)
-      return data?.balance || 0
+      if (error) throw error
+      return data
     },
-    enabled: !!userId,
-    refetchInterval: 5000 // Refetch every 5 seconds to ensure up-to-date data
+    enabled: !!userId
   })
+
+  // Calculate available time balance based on offers
+  const calculateTimeBalance = () => {
+    const INITIAL_CREDITS = 30;
+    
+    if (userOffersLoading || !userOffers) {
+      return INITIAL_CREDITS;
+    }
+    
+    // Sum up all credits used in offers
+    const usedCredits = userOffers.reduce((sum, offer) => 
+      sum + (offer.time_credits || 0), 0);
+    
+    return INITIAL_CREDITS - usedCredits;
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -146,10 +132,10 @@ const QuickStats = () => {
         <CardContent>
           <div className="flex items-center justify-between">
             <div className="text-2xl font-bold text-navy">
-              {timeBalanceLoading ? (
+              {userOffersLoading ? (
                 <Skeleton className="h-8 w-20" />
               ) : (
-                `${timeBalanceData} credits`
+                `${calculateTimeBalance()} credits`
               )}
             </div>
             <Badge variant="outline" className="bg-teal/10 text-teal">Available</Badge>

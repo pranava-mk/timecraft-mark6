@@ -110,25 +110,12 @@ export const usePendingOffers = () => {
         .update({ status: 'completed' })
         .eq('id', offerId)
       
-      if (error) {
-        // Log error but don't throw it, to prevent error toast
-        console.error("Error completing offer:", error.message)
-        return { success: false }
-      }
-      
-      return { success: true }
+      if (error) throw error
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-offers-and-applications'] })
       queryClient.invalidateQueries({ queryKey: ['time-balance'] })
       queryClient.invalidateQueries({ queryKey: ['user-stats'] })
-    },
-    onError: (error) => {
-      // Log error but don't show toast
-      console.error("Failed to complete offer:", error)
-      
-      // Still update queries
-      queryClient.invalidateQueries({ queryKey: ['pending-offers-and-applications'] })
     }
   })
 
