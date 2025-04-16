@@ -2,10 +2,9 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { supabase } from "@/integrations/supabase/client"
-import { Card, CardContent } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
-import { User } from "lucide-react"
-import { CompletedOfferCard } from "./CompletedOfferCard"
+import CompletedOffersLoading from "./CompletedOffersLoading"
+import CompletedOffersList from "./CompletedOffersList"
+import OfferEmptyState from "./OfferEmptyState"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface CompletedOffersProps {
@@ -194,23 +193,14 @@ const CompletedOffers = ({ userId }: CompletedOffersProps) => {
   })
 
   if (forYouLoading && byYouLoading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-36 w-full" />
-        <Skeleton className="h-36 w-full" />
-      </div>
-    )
+    return <CompletedOffersLoading />
   }
 
   const noCompletedOffers = (!completedForYou || completedForYou.length === 0) && 
                            (!completedByYou || completedByYou.length === 0)
 
   if (noCompletedOffers) {
-    return (
-      <p className="text-center text-muted-foreground py-8">
-        No completed services found
-      </p>
-    )
+    return <OfferEmptyState message="No completed services found" />
   }
 
   return (
@@ -222,41 +212,19 @@ const CompletedOffers = ({ userId }: CompletedOffersProps) => {
         </TabsList>
         
         <TabsContent value="for-you">
-          {!completedForYou || completedForYou.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">
-              No services completed for you
-            </p>
-          ) : (
-            <div className="space-y-4">
-              {completedForYou.map((offer) => (
-                <CompletedOfferCard
-                  key={offer.id}
-                  offer={offer}
-                  isForYou={true}
-                />
-              ))}
-            </div>
-          )}
+          <CompletedOffersList 
+            offers={completedForYou} 
+            isForYou={true} 
+            emptyMessage="No services completed for you" 
+          />
         </TabsContent>
         
         <TabsContent value="by-you">
-          {!completedByYou || completedByYou.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">
-              No services completed by you
-            </p>
-          ) : (
-            <div className="space-y-4">
-              {completedByYou.map((offer) => (
-                <CompletedOfferCard
-                  key={offer.id}
-                  offer={offer}
-                  isForYou={false}
-                  transactionId={offer.transaction_id}
-                  claimed={offer.claimed}
-                />
-              ))}
-            </div>
-          )}
+          <CompletedOffersList 
+            offers={completedByYou} 
+            isForYou={false} 
+            emptyMessage="No services completed by you" 
+          />
         </TabsContent>
       </Tabs>
     </div>
